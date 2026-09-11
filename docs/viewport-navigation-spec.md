@@ -69,6 +69,7 @@ Rules:
 |---|---|---|---|
 | Reveal Style | `.auto` / `.closest` / `.center` | `.auto` | Controls where automatic reveals place clipped or parked targets. It never decides whether a reveal happens. |
 | Manual Override Modifier | Key binding | User setting | Hold during a scroll gesture to bypass snap for that gesture. |
+| Wheel Scroll Mode | `"column"` / `"free"` | `"column"` | `"column"` steps the viewport one column per modifier+wheel step and snaps. `"free"` moves the viewport pixel-by-pixel with the wheel, does not snap on release, and its speed follows Scroll Sensitivity. |
 | Lone Window | `Fill` / `Centered(width)` with per-monitor `Use Global` / `Fill` / `Centered(width)` | `Fill` | Controls the default viewport geometry for a one-window workspace. |
 
 ---

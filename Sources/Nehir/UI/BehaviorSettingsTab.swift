@@ -95,6 +95,17 @@ struct BehaviorSettingsTab: View {
                 .disabled(!settings.scrollGestureEnabled)
 
                 SettingsCaption("Hold this key + scroll wheel to navigate workspaces")
+
+                Picker("Wheel Scroll Mode", selection: $settings.wheelScrollMode) {
+                    ForEach(WheelScrollMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .disabled(!settings.scrollGestureEnabled)
+
+                SettingsCaption(
+                    "Column Steps moves the viewport one column per wheel step and snaps to columns. Free Scroll moves the viewport pixel-by-pixel with the wheel, does not snap when scrolling stops, and its speed follows Scroll Sensitivity."
+                )
             }
 
             Section("Manual Override") {
