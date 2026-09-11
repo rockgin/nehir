@@ -49,6 +49,7 @@ overrideModifier = "option"
 scrollEnabled = true
 scrollModifierKey = "optionShift"
 scrollSensitivity = 5.0
+wheelScrollMode = "column"
 
 [mouseWarp]
 axis = "horizontal"
