@@ -14,6 +14,10 @@ private let niriTouchpadGestureRecognitionThreshold: CGFloat = 16.0
 private let macNormalizedTouchPositionToNiriGestureUnits: CGFloat = 500.0
 private let mouseWheelAxisEpsilon: CGFloat = 0.001
 private let niriWheelScrollTickAmount: CGFloat = 120.0
+// Idle window that ends a free-scroll wheel gesture: after this long without a
+// wheel event there is no follow-up scroll to coalesce, so the gesture settles
+// (the wheel has no phase-end event, unlike trackpad touches).
+private let wheelFreeScrollGestureEndTimeout: TimeInterval = 0.25
 private let queuedMouseMoveCurrentPointerTolerance: CGFloat = 2.0
 private let ffmOcclusionGrace: TimeInterval = 0.35
 private let mouseRelevantModifierFlags: CGEventFlags = [
@@ -257,6 +261,12 @@ final class MouseEventHandler {
         var debugCounters = DebugCounters()
         var horizontalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
         var verticalWheelTracker = NiriScrollTracker(tick: niriWheelScrollTickAmount)
+        // Active free-scroll wheel gesture (wheelScrollMode = .free). Reuses
+        // LockedGestureContext so endWheelFreeGestureIfNeeded can hand off to the
+        // same finalizer as committed trackpad gestures. bypassSnap is always true:
+        // free-scroll settles without column snapping.
+        var wheelFreeGesture: LockedGestureContext?
+        var wheelFreeGestureEndWorkItem: DispatchWorkItem?
     }
 
     nonisolated(unsafe) weak static var _instance: MouseEventHandler?
@@ -460,7 +470,7 @@ final class MouseEventHandler {
     }
 
     var isViewportGestureActive: Bool {
-        state.gesturePhase != .idle
+        state.gesturePhase != .idle || state.wheelFreeGesture != nil
     }
 
     func flushPendingTapEventsForTests() {
@@ -1330,6 +1340,8 @@ final class MouseEventHandler {
         let requiredModifiers = controller.settings.scrollModifierKey.cgEventFlag
         guard Self.mouseWheelModifiersMatch(modifiers, required: requiredModifiers) else {
             resetMouseWheelTrackers()
+            // Modifiers released mid-gesture: settle the free-scroll gesture immediately.
+            endWheelFreeGestureIfNeeded()
             return
         }
 
@@ -1340,20 +1352,105 @@ final class MouseEventHandler {
         ) else { return }
         guard let context = resolveScrollContext(at: location) else { return }
 
-        let ticks: Int
-        switch columnDelta.axis {
-        case .horizontal:
-            ticks = state.horizontalWheelTracker.accumulate(columnDelta.value)
-        case .vertical:
-            ticks = state.verticalWheelTracker.accumulate(columnDelta.value)
-        }
-        guard ticks != 0 else { return }
+        switch controller.settings.wheelScrollMode {
+        case .column:
+            let ticks: Int
+            switch columnDelta.axis {
+            case .horizontal:
+                ticks = state.horizontalWheelTracker.accumulate(columnDelta.value)
+            case .vertical:
+                ticks = state.verticalWheelTracker.accumulate(columnDelta.value)
+            }
+            guard ticks != 0 else { return }
 
-        applyMouseWheelColumnTicks(
-            ticks,
-            engine: context.engine,
-            wsId: context.wsId,
-            monitor: context.monitor
+            applyMouseWheelColumnTicks(
+                ticks,
+                engine: context.engine,
+                wsId: context.wsId,
+                monitor: context.monitor
+            )
+
+        case .free:
+            // A trackpad touch gesture owns the viewport — do not clobber it.
+            if controller.workspaceManager.niriViewportState(for: context.wsId)
+                .viewOffsetPixels.gestureRef?.isTrackpad == true
+            {
+                return
+            }
+            if let active = state.wheelFreeGesture,
+               active.workspaceId != context.wsId || active.monitorId != context.monitor.id
+            {
+                // Context changed mid-gesture: settle the old gesture, start fresh.
+                endWheelFreeGestureIfNeeded()
+            }
+            if state.wheelFreeGesture == nil {
+                state.wheelFreeGesture = .init(
+                    workspaceId: context.wsId,
+                    monitorId: context.monitor.id,
+                    bypassSnap: true
+                )
+                controller.diagnostics.recordRuntimeViewportTrace(
+                    workspaceId: context.wsId,
+                    reason: "wheel_free_scroll_gesture_begin",
+                    details: ["input=mouseWheel"]
+                )
+            }
+            rescheduleWheelFreeGestureEnd()
+            let delta = columnDelta.value * CGFloat(controller.settings.scrollSensitivity)
+            applyViewportScrollGestureDelta(
+                delta,
+                engine: context.engine,
+                wsId: context.wsId,
+                monitor: context.monitor,
+                isTrackpad: false
+            )
+            controller.diagnostics.recordRuntimeViewportTrace(
+                workspaceId: context.wsId,
+                reason: "wheel_free_scroll_gesture_update",
+                details: [
+                    "input=mouseWheel",
+                    String(format: "delta=%.3f", delta)
+                ]
+            )
+        }
+    }
+
+    private func rescheduleWheelFreeGestureEnd() {
+        state.wheelFreeGestureEndWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.endWheelFreeGestureIfNeeded()
+            }
+        }
+        state.wheelFreeGestureEndWorkItem = workItem
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + wheelFreeScrollGestureEndTimeout,
+            execute: workItem
+        )
+    }
+
+    /// Settles an active free-scroll wheel gesture without column snapping. The
+    /// wheel has no phase-end event, so this is driven by the idle timer and by
+    /// modifier-release / context-change / abort paths. Idempotent.
+    private func endWheelFreeGestureIfNeeded() {
+        state.wheelFreeGestureEndWorkItem?.cancel()
+        state.wheelFreeGestureEndWorkItem = nil
+        guard let context = state.wheelFreeGesture else {
+            state.wheelFreeGesture = nil
+            return
+        }
+        state.wheelFreeGesture = nil
+        guard let controller, let engine = controller.niriEngine else { return }
+        finalizeOrCancelCommittedGesture(
+            using: context,
+            engine: engine,
+            inputName: "mouseWheel",
+            isTrackpad: nil
+        )
+        controller.diagnostics.recordRuntimeViewportTrace(
+            workspaceId: context.workspaceId,
+            reason: "wheel_free_scroll_gesture_end",
+            details: ["input=mouseWheel"]
         )
     }
 
@@ -1930,6 +2027,24 @@ final class MouseEventHandler {
         monitor: Monitor,
         timestamp: TimeInterval = CACurrentMediaTime()
     ) {
+        applyViewportScrollGestureDelta(
+            delta,
+            engine: engine,
+            wsId: wsId,
+            monitor: monitor,
+            timestamp: timestamp,
+            isTrackpad: true
+        )
+    }
+
+    func applyViewportScrollGestureDelta(
+        _ delta: CGFloat,
+        engine: NiriLayoutEngine,
+        wsId: WorkspaceDescriptor.ID,
+        monitor: Monitor,
+        timestamp: TimeInterval = CACurrentMediaTime(),
+        isTrackpad: Bool = true
+    ) {
         guard let controller else { return }
         let insetFrame = controller.insetWorkingFrame(for: monitor)
         let viewportWidth = insetFrame.width
@@ -1955,13 +2070,13 @@ final class MouseEventHandler {
             let columns = engine.columns(in: wsId)
 
             if !vstate.viewOffsetPixels.isGesture {
-                guard vstate.beginGesture(isTrackpad: true, columns: columns) else { return }
+                guard vstate.beginGesture(isTrackpad: isTrackpad, columns: columns) else { return }
             }
 
             _ = vstate.updateGesture(
                 deltaPixels: delta,
                 timestamp: timestamp,
-                isTrackpad: true,
+                isTrackpad: isTrackpad,
                 columns: columns,
                 gap: gap,
                 viewportWidth: viewportWidth
@@ -1975,7 +2090,7 @@ final class MouseEventHandler {
             let isFirstUpdateAfterCommit = state.pendingFirstUpdateAfterCommit
             if controller.settings.viewportTraceVerbosity.includesGestureFrameUpdates {
                 var updateDetails = [
-                    "input=trackpadTouches",
+                    "input=\(isTrackpad ? "trackpadTouches" : "mouseWheel")",
                     String(format: "delta=%.3f", delta),
                     "phase=committed"
                 ]
@@ -2103,7 +2218,9 @@ final class MouseEventHandler {
     func finalizeOrCancelCommittedGesture(
         using lockedContext: State.LockedGestureContext,
         engine: NiriLayoutEngine,
-        timestamp: TimeInterval? = nil
+        timestamp: TimeInterval? = nil,
+        inputName: String = "trackpadTouches",
+        isTrackpad: Bool? = true
     ) {
         guard let controller else { return }
         let wsId = lockedContext.workspaceId
@@ -2167,7 +2284,7 @@ final class MouseEventHandler {
                     : nil
                 let targetOffset = closestSnap.map { snapContext.targetOffset(for: $0, in: endState) }
                 var details = [
-                    "input=trackpadTouches",
+                    "input=\(inputName)",
                     "snap=\(snapToColumn)",
                     "activeColumnIndex=\(endState.activeColumnIndex)",
                     String(format: "currentOffset=%.3f", currentOffset),
@@ -2245,7 +2362,7 @@ final class MouseEventHandler {
                 gap: gap,
                 viewportWidth: insetFrame.width,
                 motion: controller.motionPolicy.snapshot(),
-                isTrackpad: true,
+                isTrackpad: isTrackpad,
                 snapToColumn: snapToColumn,
                 workingArea: insetFrame,
                 viewFrame: monitor.frame,
@@ -2289,7 +2406,7 @@ final class MouseEventHandler {
             workspaceId: wsId,
             reason: "touch_scroll_gesture_end",
             details: [
-                "input=trackpadTouches",
+                "input=\(inputName)",
                 "snap=\(!lockedContext.bypassSnap)",
                 "focusSelection=\(focusSelectionDisposition)",
                 "nonManagedFocusAtSelection=\(nonManagedFocusAtSelection)",
@@ -2351,6 +2468,9 @@ final class MouseEventHandler {
     }
 
     private func abortActiveGestureIfNeeded() {
+        // A free-scroll wheel gesture settles alongside the abort paths that feed
+        // into this function (input suppression, touch-gesture cancel, etc.).
+        endWheelFreeGestureIfNeeded()
         let previousGesturePhase = state.gesturePhase
         if previousGesturePhase == .armed {
             // An armed (not-yet-committed) gesture is dying. Surface it in the viewport
@@ -2404,6 +2524,7 @@ final class MouseEventHandler {
     }
 
     private func resetGestureState() {
+        endWheelFreeGestureIfNeeded()
         state.gesturePhase = .idle
         state.gestureStartX = 0.0
         state.gestureStartY = 0.0

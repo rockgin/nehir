@@ -80,6 +80,7 @@ struct SettingsExport: Equatable, Sendable {
     var scrollGestureEnabled: Bool
     var scrollSensitivity: Double
     var scrollModifierKey: String
+    var wheelScrollMode: String
     var overrideModifier: String
     var gestureFingerCount: Int
     var gestureInvertDirection: Bool
@@ -184,6 +185,7 @@ extension SettingsExport {
             scrollGestureEnabled: true,
             scrollSensitivity: 5.0,
             scrollModifierKey: ScrollModifierKey.optionShift.rawValue,
+            wheelScrollMode: WheelScrollMode.column.rawValue,
             overrideModifier: OverrideModifierKey.option.rawValue,
             gestureFingerCount: GestureFingerCount.three.rawValue,
             gestureInvertDirection: true,
