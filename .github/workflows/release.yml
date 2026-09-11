@@ -4,21 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       prerelease:
-        description: "Create a GitHub prerelease and publish it to the nehir@rc Homebrew cask"
-        type: boolean
-        default: false
-      resume_notary_run_id:
-        description: "Optional previous workflow run ID containing nehir-notary-<version> artifact"
-        type: string
-        required: false
-      bypass_notarization:
-        description: "Build the release ZIP without Apple notarization"
+        description: "Create a GitHub prerelease"
         type: boolean
         default: false
 
 permissions:
   contents: write
-  actions: read
 
 concurrency:
   group: release
@@ -26,14 +17,9 @@ concurrency:
 
 jobs:
   release:
-    name: Build release and update Homebrew tap
+    name: Build release
     runs-on: macos-26
     timeout-minutes: 120
-
-    env:
-      TAP_REPOSITORY: Guria/homebrew-tap
-      CASK_PATH: Casks/nehir.rb
-      RC_CASK_PATH: Casks/nehir@rc.rb
 
     steps:
       - name: Check out Nehir main
@@ -52,10 +38,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ inputs.bypass_notarization }}" = "true" ] && [ -n "${{ inputs.resume_notary_run_id }}" ]; then
-            echo "resume_notary_run_id cannot be used when bypass_notarization=true" >&2
-            exit 1
-          fi
           mise run release:plan
 
       - name: Show toolchain
@@ -84,118 +66,16 @@ jobs:
           set -euo pipefail
           mise run release:apply -- "${{ steps.version.outputs.version }}"
 
-      - name: Import Apple Developer ID certificate
-        env:
-          CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
-          CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
-          KEYCHAIN_PASSWORD: ${{ github.run_id }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
-          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
-
-          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          security import "$CERT_PATH" \
-            -P "$CERT_PASSWORD" \
-            -A \
-            -t cert \
-            -f pkcs12 \
-            -k "$KEYCHAIN_PATH"
-
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          security default-keychain -s "$KEYCHAIN_PATH"
-
-          security set-key-partition-list \
-            -S apple-tool:,apple:,codesign: \
-            -s \
-            -k "$KEYCHAIN_PASSWORD" \
-            "$KEYCHAIN_PATH"
-
-          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
-
-      - name: Configure Apple notarization credentials
-        if: ${{ !inputs.bypass_notarization }}
-        env:
-          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-          APPLE_NOTARY_KEY_P8: ${{ secrets.APPLE_NOTARY_KEY_P8 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          NOTARY_KEY_PATH="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
-          # Ensure the PEM content ends with a newline
-          printf '%s\n' "$APPLE_NOTARY_KEY_P8" > "$NOTARY_KEY_PATH"
-          # Sanity check
-          head -1 "$NOTARY_KEY_PATH" | grep -q 'BEGIN PRIVATE KEY' || { echo "APPLE_NOTARY_KEY_P8 secret does not start with BEGIN PRIVATE KEY"; exit 1; }
-          tail -1 "$NOTARY_KEY_PATH" | grep -q 'END PRIVATE KEY' || { echo "APPLE_NOTARY_KEY_P8 secret does not end with END PRIVATE KEY; check for literal \\n sequences or truncated paste"; exit 1; }
-          if grep -q '\\n' "$NOTARY_KEY_PATH"; then
-            echo "APPLE_NOTARY_KEY_P8 contains literal \\n sequences. Copy the raw .p8 file contents instead: pbcopy < AuthKey_XXXX.p8" >&2
-            exit 1
-          fi
-
-          xcrun notarytool store-credentials nehir-notary \
-            --key "$NOTARY_KEY_PATH" \
-            --key-id "$APPLE_NOTARY_KEY_ID" \
-            --issuer "$APPLE_NOTARY_ISSUER_ID"
-
-      - name: Build signed app and submit notarization
-        if: ${{ !inputs.bypass_notarization && inputs.resume_notary_run_id == '' }}
+      - name: Build release ZIP (ad-hoc signed)
         env:
           RELEASE_ZIP_PATH: ${{ github.workspace }}/${{ steps.version.outputs.zip }}
-          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          NOTARIZE_PROFILE: nehir-notary
-          NOTARIZE_SUBMIT_ONLY: true
-        run: mise run package:release -- true
-
-      - name: Build signed app without notarization
-        if: ${{ inputs.bypass_notarization }}
-        env:
-          RELEASE_ZIP_PATH: ${{ github.workspace }}/${{ steps.version.outputs.zip }}
-          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          NOTARIZE_SKIP: true
-        run: mise run package:release -- true
-
-      - name: Upload notarization resume artifact
-        if: ${{ !inputs.bypass_notarization && inputs.resume_notary_run_id == '' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: nehir-notary-${{ steps.version.outputs.version }}
-          path: |
-            dist/Nehir-notary.zip
-            dist/notary-submission-id.txt
-            dist/release-metadata.env
-          retention-days: 7
-
-      - name: Download notarization resume artifact
-        if: ${{ !inputs.bypass_notarization && inputs.resume_notary_run_id != '' }}
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: nehir-notary-${{ steps.version.outputs.version }}
-          path: dist
-          run-id: ${{ inputs.resume_notary_run_id }}
-          github-token: ${{ github.token }}
-
-      - name: Wait for notarization, staple, and create release ZIP
-        if: ${{ !inputs.bypass_notarization }}
-        env:
-          RELEASE_ZIP_PATH: ${{ github.workspace }}/${{ steps.version.outputs.zip }}
-          NOTARIZE_PROFILE: nehir-notary
-          NOTARIZE_WAIT_TIMEOUT: 25m
-        run: mise run package:finalize-notarization
+        run: mise run package:release
 
       - name: Render release notes
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SINCE_TAG: ${{ steps.last-rc.outputs.since_tag || '' }}
-          RELEASE_BYPASS_NOTARIZATION: ${{ inputs.bypass_notarization }}
+          RELEASE_BYPASS_NOTARIZATION: true
         shell: bash
         run: |
           set -euo pipefail
@@ -249,74 +129,6 @@ jobs:
             args+=(--prerelease)
           fi
           gh release create "${args[@]}"
-
-      - name: Create Homebrew tap token
-        id: tap-token
-        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
-        with:
-          app-id: ${{ secrets.TAP_APP_ID }}
-          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
-          owner: Guria
-          repositories: homebrew-tap
-
-      - name: Check out Homebrew tap
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          repository: ${{ env.TAP_REPOSITORY }}
-          token: ${{ steps.tap-token.outputs.token }}
-          path: homebrew-tap
-
-      - name: Update cask version and checksum
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          SHA256: ${{ steps.checksum.outputs.sha256 }}
-          PRERELEASE: ${{ inputs.prerelease }}
-          CASK_FILE: homebrew-tap/${{ inputs.prerelease && env.RC_CASK_PATH || env.CASK_PATH }}
-        shell: bash
-        run: |
-          path="${CASK_FILE}"
-          # Seed RC cask from stable on first prerelease.
-          if [ "${{ inputs.prerelease }}" = "true" ] && [ ! -f "$path" ]; then
-            cp "homebrew-tap/${CASK_PATH}" "$path"
-          fi
-
-          ruby <<'RUBY'
-          path = ENV.fetch("CASK_FILE")
-          version = ENV.fetch("VERSION")
-          sha256 = ENV.fetch("SHA256")
-          prerelease = ENV.fetch("PRERELEASE") == "true"
-
-          text = File.read(path)
-          text = text.sub(/^cask "[^"]+" do$/, %(cask "nehir@rc" do)) if prerelease
-          text = text.sub(/version "[^"]+"/, %(version "#{version}"))
-          text = text.sub(/^  sha256 (?:"[0-9a-f]{64}"|:no_check.*)$/, %(  sha256 "#{sha256}"))
-          text = text.sub(/strategy :github_latest/, "strategy :github_releases") if prerelease
-          File.write(path, text)
-          RUBY
-
-      - name: Validate cask syntax and style
-        env:
-          CASK_PATH_TO_VALIDATE: ${{ inputs.prerelease && env.RC_CASK_PATH || env.CASK_PATH }}
-        working-directory: homebrew-tap
-        run: |
-          ruby -c "$CASK_PATH_TO_VALIDATE"
-          brew style "$CASK_PATH_TO_VALIDATE"
-
-      - name: Commit and push tap update
-        working-directory: homebrew-tap
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${{ inputs.prerelease && env.RC_CASK_PATH || env.CASK_PATH }}"
-          if git diff --cached --quiet; then
-            echo "Cask already up to date."
-            exit 0
-          fi
-
-          git commit -m "Update Nehir${{ inputs.prerelease && ' RC' || '' }} to ${{ steps.version.outputs.version }}"
-          git push
 
       - name: Clear released changesets
         if: ${{ !inputs.prerelease }}
