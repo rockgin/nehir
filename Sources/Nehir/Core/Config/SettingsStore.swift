@@ -344,6 +344,10 @@ final class SettingsStore {
         didSet { scheduleSave() }
     }
 
+    var invertWheelScrollDirection = SettingsStore.defaultExport.invertWheelScrollDirection {
+        didSet { scheduleSave() }
+    }
+
     var overrideModifier = OverrideModifierKey(
         rawValue: SettingsStore.defaultExport.overrideModifier
     ) ?? .option {
@@ -520,6 +524,7 @@ final class SettingsStore {
             scrollSensitivity: scrollSensitivity,
             scrollModifierKey: scrollModifierKey.rawValue,
             wheelScrollMode: wheelScrollMode.rawValue,
+            invertWheelScrollDirection: invertWheelScrollDirection,
             overrideModifier: overrideModifier.rawValue,
             gestureFingerCount: gestureFingerCount.rawValue,
             gestureInvertDirection: gestureInvertDirection,
@@ -617,6 +622,7 @@ final class SettingsStore {
         scrollSensitivity = export.scrollSensitivity
         scrollModifierKey = ScrollModifierKey(rawValue: export.scrollModifierKey) ?? .optionShift
         wheelScrollMode = WheelScrollMode(rawValue: export.wheelScrollMode) ?? .column
+        invertWheelScrollDirection = export.invertWheelScrollDirection
         overrideModifier = OverrideModifierKey(rawValue: export.overrideModifier) ?? .option
         gestureFingerCount = GestureFingerCount(rawValue: export.gestureFingerCount) ?? .three
         gestureInvertDirection = export.gestureInvertDirection

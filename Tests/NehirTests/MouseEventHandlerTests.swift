@@ -386,6 +386,9 @@ private func prepareMouseWheelScrollFixture(
     let controller = makeMouseEventTestController(ownedWindowRegistry: ownedWindowRegistry)
     controller.settings.scrollGestureEnabled = true
     controller.settings.scrollSensitivity = 1.0
+    // These tests assert the physical wheel -> viewport mapping directly, so
+    // opt out of the (now-on-by-default) wheel direction inversion.
+    controller.settings.invertWheelScrollDirection = false
     let frame = CGRect(x: 0, y: 0, width: 640, height: 800)
     let monitor = Monitor(
         id: Monitor.ID(displayId: 1),

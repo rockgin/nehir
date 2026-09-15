@@ -45,6 +45,7 @@ viewportTraceVerbosity = "standard"
 [gestures]
 fingerCount = 3
 invertDirection = true
+invertWheelScrollDirection = true
 overrideModifier = "option"
 scrollEnabled = true
 scrollModifierKey = "optionShift"

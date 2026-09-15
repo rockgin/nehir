@@ -1345,12 +1345,18 @@ final class MouseEventHandler {
             return
         }
 
-        guard let columnDelta = Self.resolvedMouseWheelColumnDelta(
+        guard var columnDelta = Self.resolvedMouseWheelColumnDelta(
             deltaX: deltaX,
             deltaY: deltaY,
             allowVerticalFallback: modifiers.contains(.maskShift)
         ) else { return }
         guard let context = resolveScrollContext(at: location) else { return }
+
+        // Invert the wheel direction for both Column Steps and Free Scroll when
+        // the user prefers the opposite wheel-to-viewport mapping.
+        if controller.settings.invertWheelScrollDirection {
+            columnDelta.value = -columnDelta.value
+        }
 
         switch controller.settings.wheelScrollMode {
         case .column:
