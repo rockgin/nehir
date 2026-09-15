@@ -106,6 +106,13 @@ struct BehaviorSettingsTab: View {
                 SettingsCaption(
                     "Column Steps moves the viewport one column per wheel step and snaps to columns. Free Scroll moves the viewport pixel-by-pixel with the wheel, does not snap when scrolling stops, and its speed follows Scroll Sensitivity."
                 )
+
+                Toggle("Invert Wheel Scroll Direction", isOn: $settings.invertWheelScrollDirection)
+                    .disabled(!settings.scrollGestureEnabled)
+
+                SettingsCaption(
+                    "Turn the wheel the other way to move the viewport. On by default; turn it off for the standard wheel mapping."
+                )
             }
 
             Section("Manual Override") {
