@@ -62,6 +62,7 @@ extension ScrollModifierKey {
         switch self {
         case .optionShift: [.maskAlternate, .maskShift]
         case .controlShift: [.maskControl, .maskShift]
+        case .optionCommand: [.maskAlternate, .maskCommand]
         }
     }
 }

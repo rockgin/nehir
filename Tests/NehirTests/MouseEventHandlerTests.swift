@@ -536,6 +536,65 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         #expect(after.viewOffsetPixels.isGesture == false)
     }
 
+    @Test @MainActor func mouseWheelInvertDirectionFlipsColumnStepDirection() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        fixture.controller.settings.invertWheelScrollDirection = true
+
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        // A backward wheel turn, inverted by the (on-by-default) setting, advances a column.
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: -120,
+            deltaY: 0,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        // Without inversion, deltaX == -120 steps backward and clamps at the first column.
+        #expect(after.activeColumnIndex == before.activeColumnIndex + 1)
+        #expect(after.viewOffsetPixels.isGesture == false)
+    }
+
+    @Test @MainActor func mouseWheelInvertDirectionFlipsFreeScrollOffset() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        fixture.controller.settings.wheelScrollMode = .free
+        let modifiers = fixture.controller.settings.scrollModifierKey.cgEventFlag
+
+        func dispatch(_ deltaX: CGFloat) {
+            fixture.handler.dispatchScrollWheel(
+                at: fixture.location,
+                deltaX: deltaX,
+                deltaY: 0,
+                momentumPhase: 0,
+                phase: 0,
+                modifiers: modifiers
+            )
+        }
+
+        // Standard direction: positive wheel turn moves the viewport one way.
+        fixture.controller.settings.invertWheelScrollDirection = false
+        let normalStart = fixture.controller.workspaceManager
+            .niriViewportState(for: fixture.workspaceId).viewOffsetPixels.current()
+        dispatch(200)
+        let normalStep = fixture.controller.workspaceManager
+            .niriViewportState(for: fixture.workspaceId).viewOffsetPixels.current() - normalStart
+
+        // Inverted direction: the same positive wheel turn moves the opposite way.
+        fixture.controller.settings.invertWheelScrollDirection = true
+        let invertedStart = fixture.controller.workspaceManager
+            .niriViewportState(for: fixture.workspaceId).viewOffsetPixels.current()
+        dispatch(200)
+        let invertedStep = fixture.controller.workspaceManager
+            .niriViewportState(for: fixture.workspaceId).viewOffsetPixels.current() - invertedStart
+
+        // Both directions must move the viewport, and in opposite signs.
+        #expect(abs(normalStep) > 0.001)
+        #expect(abs(invertedStep) > 0.001)
+        #expect(normalStep.sign != invertedStep.sign)
+    }
+
     @Test @MainActor func mouseWheelAccumulatesDiscreteNiriTicksBeforeFocusingColumn() async {
         let fixture = await prepareMouseWheelScrollFixture()
         let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
