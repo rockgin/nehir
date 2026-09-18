@@ -1348,7 +1348,9 @@ final class MouseEventHandler {
         guard var columnDelta = Self.resolvedMouseWheelColumnDelta(
             deltaX: deltaX,
             deltaY: deltaY,
-            allowVerticalFallback: modifiers.contains(.maskShift)
+            // The configured scroll modifier is already verified above, so accept a
+            // vertical wheel delta regardless of whether that modifier includes Shift.
+            allowVerticalFallback: true
         ) else { return }
         guard let context = resolveScrollContext(at: location) else { return }
 

@@ -660,6 +660,26 @@ private func prepareMouseWheelScrollFixtureWithDefaultSensitivity() async -> (
         #expect(after.viewOffsetPixels.isGesture == false)
     }
 
+    @Test @MainActor func mouseWheelNonShiftModifierScrollsVertically() async {
+        let fixture = await prepareMouseWheelScrollFixture()
+        fixture.controller.settings.scrollModifierKey = .optionCommand
+        let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+
+        fixture.handler.dispatchScrollWheel(
+            at: fixture.location,
+            deltaX: 0,
+            deltaY: 120,
+            momentumPhase: 0,
+            phase: 0,
+            modifiers: fixture.controller.settings.scrollModifierKey.cgEventFlag
+        )
+
+        let after = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
+        // Option+Command carries no Shift; a vertical wheel must still step a column.
+        #expect(after.activeColumnIndex == before.activeColumnIndex + 1)
+        #expect(after.viewOffsetPixels.isGesture == false)
+    }
+
     @Test @MainActor func mouseWheelExtraModifiersDoNotTriggerConfiguredScroll() async {
         let fixture = await prepareMouseWheelScrollFixture()
         let before = fixture.controller.workspaceManager.niriViewportState(for: fixture.workspaceId)
