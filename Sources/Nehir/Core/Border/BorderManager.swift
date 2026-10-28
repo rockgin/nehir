@@ -42,6 +42,10 @@ final class BorderManager {
         }
     }
 
+    var isEnabled: Bool {
+        config.enabled
+    }
+
     func updateConfig(_ newConfig: BorderConfig) {
         let wasEnabled = config.enabled
         config = newConfig

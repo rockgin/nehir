@@ -2055,6 +2055,42 @@ final class AXEventHandler: CGSEventDelegate {
         }
     }
 
+    /// Live move/resize of the focused window reported by its own AX observer.
+    ///
+    /// WindowServer's per-window move notifications are not delivered for windows
+    /// owned by another process, so the `.frameChanged` path above never fires for
+    /// the apps Nehir draws borders around. This entry point keeps focus UI and
+    /// floating geometry live during a drag without re-running tiled relayout,
+    /// which would fight the user's drag.
+    func handleObservedFocusFrameChange(windowId: UInt32, pid: pid_t) {
+        guard let controller else { return }
+        guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else { return }
+        guard let target = controller.currentBorderTarget(),
+              target.pid == pid,
+              UInt32(exactly: target.windowId) == windowId
+        else { return }
+
+        let windowServerToken = resolveWindowToken(windowId)
+        let resolvedToken = resolveTrackedToken(
+            windowId,
+            resolvedWindowToken: windowServerToken
+        )
+        _ = updateFocusedBorderForFrameChange(
+            windowId: windowId,
+            windowServerToken: windowServerToken,
+            resolvedToken: resolvedToken
+        )
+
+        guard let token = resolvedToken,
+              let entry = controller.workspaceManager.entry(for: token),
+              entry.mode == .floating,
+              isWindowDisplayable(token: token)
+        else { return }
+        if let frame = observedFrame(for: entry) {
+            controller.workspaceManager.updateFloatingGeometry(frame: frame, for: token)
+        }
+    }
+
     private func handleFrameChanged(windowId: UInt32) {
         guard let controller else { return }
         guard !controller.isOwnedWindow(windowNumber: Int(windowId)) else { return }
