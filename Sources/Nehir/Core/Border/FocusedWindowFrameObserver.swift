@@ -20,7 +20,7 @@ import Foundation
 final class FocusedWindowFrameObserver {
     private static let notifications: [CFString] = [
         kAXWindowMovedNotification as CFString,
-        kAXWindowResizedNotification as CFString,
+        kAXWindowResizedNotification as CFString
     ]
 
     /// Called at most once per main-run loop turn while notifications are
