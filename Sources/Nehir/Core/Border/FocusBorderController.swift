@@ -34,10 +34,12 @@ final class FocusBorderController {
     var suppressNextFrameHintForTests: ((WindowToken) -> Bool)?
 
     private let borderManager: BorderManager
+    private let focusedWindowFrameObserver = FocusedWindowFrameObserver()
     private var visualFocusTarget: KeyboardFocusTarget?
     private var requiresFocusValidationBeforeRender = false
     private var suppressedManagedTargets: Set<WindowToken> = []
     private var isScreenshotCaptureSuppressed = false
+    private var cachedWindowAttributes: (token: WindowToken, role: String?, subrole: String?)?
 
     init(
         controller: WMController,
@@ -45,6 +47,9 @@ final class FocusBorderController {
     ) {
         self.controller = controller
         self.borderManager = borderManager
+        focusedWindowFrameObserver.onFrameChange = { [weak self] windowId, pid in
+            self?.handleObservedFrameChange(windowId: windowId, pid: pid)
+        }
     }
 
     @discardableResult
@@ -55,10 +60,12 @@ final class FocusBorderController {
         forceOrdering: Bool = true
     ) -> Bool {
         visualFocusTarget = target
+        cachedWindowAttributes = nil
         requiresFocusValidationBeforeRender = false
         if let target {
             suppressedManagedTargets.remove(target.token)
         }
+        syncFocusedWindowObservation()
         return refresh(
             preferredFrame: preferredFrame,
             preferredFrameSource: preferredFrameSource,
@@ -72,15 +79,22 @@ final class FocusBorderController {
         preferredFrameSource: BorderFrameSource = .layout,
         forceOrdering: Bool = false
     ) -> Bool {
+        if forceOrdering {
+            cachedWindowAttributes = nil
+        }
         if isScreenshotCaptureSuppressed {
+            focusedWindowFrameObserver.stop()
             borderManager.hideBorder()
             return false
         }
 
         guard let target = visualFocusTarget else {
+            focusedWindowFrameObserver.stop()
             borderManager.hideBorder()
             return false
         }
+
+        syncFocusedWindowObservation()
 
         if requiresFocusValidationBeforeRender {
             guard isStillKeyboardFocused(target) else {
@@ -119,12 +133,15 @@ final class FocusBorderController {
 
     func hide() {
         requiresFocusValidationBeforeRender = visualFocusTarget != nil
+        focusedWindowFrameObserver.stop()
         borderManager.hideBorder()
     }
 
     func clear() {
         visualFocusTarget = nil
+        cachedWindowAttributes = nil
         requiresFocusValidationBeforeRender = false
+        focusedWindowFrameObserver.stop()
         borderManager.hideBorder()
     }
 
@@ -171,7 +188,9 @@ final class FocusBorderController {
             workspaceId: workspaceId,
             isManaged: target.isManaged
         )
+        cachedWindowAttributes = nil
         requiresFocusValidationBeforeRender = true
+        syncFocusedWindowObservation()
     }
 
     func updateFocusedTargetWorkspace(
@@ -188,11 +207,13 @@ final class FocusBorderController {
             workspaceId: workspaceId,
             isManaged: workspaceId != nil
         )
+        syncFocusedWindowObservation()
     }
 
     func setScreenshotCaptureSuppressed(_ suppressed: Bool) {
         guard isScreenshotCaptureSuppressed != suppressed else {
             if suppressed {
+                focusedWindowFrameObserver.stop()
                 borderManager.hideBorder()
             }
             return
@@ -200,6 +221,7 @@ final class FocusBorderController {
 
         isScreenshotCaptureSuppressed = suppressed
         if suppressed {
+            focusedWindowFrameObserver.stop()
             borderManager.hideBorder()
             return
         }
@@ -218,6 +240,7 @@ final class FocusBorderController {
 
     func setEnabled(_ enabled: Bool) {
         borderManager.setEnabled(enabled)
+        syncFocusedWindowObservation()
         if enabled {
             _ = refresh(forceOrdering: true)
         }
@@ -225,6 +248,7 @@ final class FocusBorderController {
 
     func updateConfig(_ config: BorderConfig) {
         borderManager.updateConfig(config)
+        syncFocusedWindowObservation()
         if config.enabled {
             _ = refresh(forceOrdering: true)
         }
@@ -232,9 +256,11 @@ final class FocusBorderController {
 
     func cleanup() {
         visualFocusTarget = nil
+        cachedWindowAttributes = nil
         requiresFocusValidationBeforeRender = false
         suppressedManagedTargets.removeAll()
         isScreenshotCaptureSuppressed = false
+        focusedWindowFrameObserver.stop()
         borderManager.cleanup()
     }
 
@@ -351,27 +377,59 @@ final class FocusBorderController {
         return controller.axEventHandler.focusedWindowToken(for: target.pid) == target.token
     }
 
-    private func borderOrdering(for target: KeyboardFocusTarget) -> SkyLightWindowOrder {
-        let attributes = windowRoleProviderForTests?(target.axRef) ?? (
+    private func syncFocusedWindowObservation() {
+        guard borderManager.isEnabled,
+              !isScreenshotCaptureSuppressed,
+              let target = visualFocusTarget,
+              let windowId = UInt32(exactly: target.windowId)
+        else {
+            focusedWindowFrameObserver.stop()
+            return
+        }
+        focusedWindowFrameObserver.track(
+            pid: target.pid,
+            windowId: windowId,
+            element: target.axRef.element
+        )
+    }
+
+    private func handleObservedFrameChange(windowId: UInt32, pid: pid_t) {
+        guard visualFocusTarget?.token == WindowToken(pid: pid, windowId: Int(windowId)) else { return }
+        controller?.axEventHandler.handleObservedFocusFrameChange(windowId: windowId, pid: pid)
+    }
+
+    /// Role/subrole decide ordering, placement and modal-surface eligibility.
+    /// A drag re-renders the border at move-event rate, so the values are cached
+    /// per focused target instead of paying two AX round-trips per render. They
+    /// are invalidated whenever the target changes or ordering is re-forced (the
+    /// moments a window's role/subrole can change, e.g. native fullscreen).
+    private func windowAttributes(for target: KeyboardFocusTarget) -> (role: String?, subrole: String?) {
+        if let windowRoleProviderForTests {
+            return windowRoleProviderForTests(target.axRef)
+        }
+        if let cachedWindowAttributes, cachedWindowAttributes.token == target.token {
+            return (cachedWindowAttributes.role, cachedWindowAttributes.subrole)
+        }
+        let attributes = (
             role: AXWindowService.role(target.axRef),
             subrole: AXWindowService.subrole(target.axRef)
         )
+        cachedWindowAttributes = (token: target.token, role: attributes.role, subrole: attributes.subrole)
+        return attributes
+    }
+
+    private func borderOrdering(for target: KeyboardFocusTarget) -> SkyLightWindowOrder {
+        let attributes = windowAttributes(for: target)
         return isQutebrowserFramelessTopLevelWindow(target, attributes: attributes) ? .above : .below
     }
 
     private func borderPlacement(for target: KeyboardFocusTarget) -> BorderPlacement {
-        let attributes = windowRoleProviderForTests?(target.axRef) ?? (
-            role: AXWindowService.role(target.axRef),
-            subrole: AXWindowService.subrole(target.axRef)
-        )
+        let attributes = windowAttributes(for: target)
         return isQutebrowserFramelessTopLevelWindow(target, attributes: attributes) ? .inside : .outside
     }
 
     private func isSystemModalSurface(_ target: KeyboardFocusTarget) -> Bool {
-        let attributes = windowRoleProviderForTests?(target.axRef) ?? (
-            role: AXWindowService.role(target.axRef),
-            subrole: AXWindowService.subrole(target.axRef)
-        )
+        let attributes = windowAttributes(for: target)
 
         if isQutebrowserFramelessTopLevelWindow(target, attributes: attributes) {
             return false

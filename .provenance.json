@@ -36,6 +36,7 @@
       "paths": [
         "Sources/Nehir/Core/Ax/AXWindowsQueryTrace.swift",
         "Sources/Nehir/Core/Ax/RawAXNotificationTrace.swift",
+        "Sources/Nehir/Core/Border/FocusedWindowFrameObserver.swift",
         "Sources/Nehir/Core/Config/AppRuleFileStore.swift",
         "Sources/Nehir/Core/Config/ConfigAssistancePrompt.swift",
         "Sources/Nehir/Core/Config/ConfigMismatchDetector.swift",
