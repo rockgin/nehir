@@ -53,6 +53,8 @@ enum HotkeyCommand: Codable, Equatable, Hashable {
     case scrollViewportLeft
     case scrollViewportRight
     case toggleViewportScrollLock
+    case centerActiveColumn
+    case placeActiveColumnAtRightEdge
     case cycleColumnWidthForward
     case cycleColumnWidthBackward
     case cycleWindowWidthForward

@@ -295,6 +295,22 @@ enum ActionCatalog {
                 category: .layout,
                 binding: .unassigned,
                 keywords: ["lock", "pin", "freeze viewport"]
+            ),
+            action(
+                id: "centerActiveColumn",
+                command: .centerActiveColumn,
+                category: .layout,
+                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_C), modifiers: UInt32(controlKey | optionKey)),
+                keywords: ["center", "viewport", "active column", "middle"],
+                preserveBinding: true
+            ),
+            action(
+                id: "placeActiveColumnAtRightEdge",
+                command: .placeActiveColumnAtRightEdge,
+                category: .layout,
+                binding: KeyBinding(keyCode: UInt32(kVK_ANSI_X), modifiers: UInt32(controlKey | optionKey)),
+                keywords: ["right edge", "margin", "viewport", "active column"],
+                preserveBinding: true
             )
         ])
 
@@ -850,7 +866,8 @@ enum ActionCatalog {
         binding: KeyBinding,
         keywords: [String] = [],
         stability: FeatureStability = .stable,
-        requiresDeveloperMode: Bool = false
+        requiresDeveloperMode: Bool = false,
+        preserveBinding: Bool = false
     ) -> ActionSpec {
         let title = displayName(for: command)
         return ActionSpec(
@@ -859,7 +876,7 @@ enum ActionCatalog {
             title: title,
             keywords: uniqueTerms(keywords + [title, id]),
             category: category,
-            defaultBinding: defaultBinding(for: binding),
+            defaultBinding: preserveBinding ? binding : defaultBinding(for: binding),
             ipcCommandName: ipcCommandName(for: command),
             stability: stability,
             requiresDeveloperMode: requiresDeveloperMode
@@ -929,6 +946,8 @@ enum ActionCatalog {
         case .scrollViewportLeft: "Scroll Viewport Left"
         case .scrollViewportRight: "Scroll Viewport Right"
         case .toggleViewportScrollLock: "Toggle Viewport Scroll Lock"
+        case .centerActiveColumn: "Center Active Column"
+        case .placeActiveColumnAtRightEdge: "Place Active Column at Right Edge"
         case .cycleColumnWidthForward: "Cycle Column Width Forward"
         case .cycleColumnWidthBackward: "Cycle Column Width Backward"
         case .cycleWindowWidthForward: "Cycle Window Width Forward"
@@ -1007,6 +1026,10 @@ enum ActionCatalog {
             .scrollViewportRight
         case .toggleViewportScrollLock:
             .toggleViewportScrollLock
+        case .centerActiveColumn:
+            nil
+        case .placeActiveColumnAtRightEdge:
+            nil
         case .move:
             .move
         case .moveWindowDown:
