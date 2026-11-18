@@ -2047,6 +2047,66 @@ enum NiriWindowMoveResult {
         }
     }
 
+    func centerActiveColumn() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            let scale = engine.displayScale(in: wsId)
+            let columns = engine.columns(in: wsId)
+            let activeIndex = state.activeColumnIndex
+            guard columns.indices.contains(activeIndex) else { return }
+
+            let targetOffset = state.computeCenteredOffset(
+                columnIndex: activeIndex,
+                columns: columns,
+                gap: gaps,
+                viewportWidth: workingFrame.width,
+                workingArea: workingFrame,
+                viewFrame: workingFrame,
+                scale: scale
+            )
+
+            let pixel = 1.0 / max(scale, 1.0)
+            guard abs(targetOffset - state.viewOffsetPixels.target()) > pixel else { return }
+
+            state.animateToOffset(targetOffset, motion: motion, scale: scale)
+            controller.layoutRefreshController.requestRefresh(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
+    func placeActiveColumnAtRightEdge() {
+        guard let controller else { return }
+        withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in
+            let scale = engine.displayScale(in: wsId)
+            let columns = engine.columns(in: wsId)
+            let activeIndex = state.activeColumnIndex
+            guard columns.indices.contains(activeIndex) else { return }
+
+            let columnX = state.columnX(at: activeIndex, columns: columns, gap: gaps)
+            let columnWidth = columns[activeIndex].effectiveViewportWidth
+            let rightEdgeMargin: CGFloat = 200
+
+            // Position the viewport so the active column's right edge is
+            // `rightEdgeMargin` points inset from the right edge of the working area.
+            let targetViewStart = columnX + columnWidth + rightEdgeMargin - workingFrame.width
+
+            let targetOffset = state.boundedViewOffset(
+                targetViewStart: targetViewStart,
+                activeColumnIndex: activeIndex,
+                columns: columns,
+                gap: gaps,
+                viewportWidth: workingFrame.width
+            )
+
+            let pixel = 1.0 / max(scale, 1.0)
+            guard abs(targetOffset - state.viewOffsetPixels.target()) > pixel else { return }
+
+            state.animateToOffset(targetOffset, motion: motion, scale: scale)
+            controller.layoutRefreshController.requestRefresh(reason: .layoutCommand)
+            startScrollAnimationIfNeeded(for: wsId, state: state, engine: engine)
+        }
+    }
+
     func setColumnWidth(_ change: NiriSizeChange) {
         guard let controller else { return }
         withNiriWorkspaceContext { engine, wsId, motion, state, _, workingFrame, gaps in

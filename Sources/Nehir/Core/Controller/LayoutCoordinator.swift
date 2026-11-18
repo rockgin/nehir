@@ -59,6 +59,8 @@ import Foundation
     // Viewport
     func scrollViewport(direction: Direction)
     func toggleViewportScrollLock()
+    func centerActiveColumn()
+    func placeActiveColumnAtRightEdge()
 }
 
 // Conformance is free: `NiriLayoutHandler` already implements every requirement
