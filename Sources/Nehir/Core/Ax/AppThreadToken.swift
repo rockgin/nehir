@@ -6,9 +6,12 @@
 
 import Foundation
 
-@TaskLocal
+// NOTE: Swift 6.4's @TaskLocal macro concatenates @usableFromInline and
+// nonisolated into an invalid attribute when expanding a global var. Declare
+// the TaskLocal storage explicitly to avoid the macro bug while keeping the
+// symbol usable from @inlinable code.
 @usableFromInline
-var appThreadToken: AppThreadToken?
+let appThreadToken: TaskLocal<AppThreadToken?> = TaskLocal(wrappedValue: nil)
 
 @usableFromInline
 struct AppThreadToken: Sendable, Equatable {

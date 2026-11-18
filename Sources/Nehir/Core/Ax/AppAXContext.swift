@@ -208,7 +208,7 @@ final class AppAXContext {
             }
 
             let thread = Thread {
-                $appThreadToken.withValue(AppThreadToken(pid: pid)) {
+                appThreadToken.withValue(AppThreadToken(pid: pid)) {
                     let axApp = AXUIElementCreateApplication(pid)
 
                     var observer: AXObserver?
@@ -812,7 +812,7 @@ final class AppAXContext {
 
         return await withCheckedContinuation { continuation in
             let thread = Thread {
-                $appThreadToken.withValue(AppThreadToken(pid: resolvedPid)) {
+                appThreadToken.withValue(AppThreadToken(pid: resolvedPid)) {
                     let axApp = AXUIElementCreateApplication(resolvedPid)
                     let guardedAxApp = ThreadGuardedValue(axApp)
                     let guardedWindows = ThreadGuardedValue([Int: AXUIElement]())
