@@ -500,6 +500,16 @@ public enum IPCAutomationManifest {
             summary: "Toggle automatic viewport scroll lock on the active workspace."
         ),
         command(
+            ["center-active-column"],
+            name: .centerActiveColumn,
+            summary: "Center the active Niri column in the viewport."
+        ),
+        command(
+            ["place-active-column-at-right-edge"],
+            name: .placeActiveColumnAtRightEdge,
+            summary: "Place the active Niri column 200 points from the right screen edge."
+        ),
+        command(
             ["move"],
             name: .move,
             summary: "Move the focused window in the given direction.",

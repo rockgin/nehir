@@ -297,6 +297,8 @@ public enum IPCCommandName: String, Codable, CaseIterable, Equatable, Sendable {
     case toggleBordersEnabled = "toggle-borders"
     case togglePreventSleepEnabled = "toggle-prevent-sleep"
     case toggleIPCEnabled = "toggle-ipc"
+    case centerActiveColumn = "center-active-column"
+    case placeActiveColumnAtRightEdge = "place-active-column-at-right-edge"
 }
 
 public enum IPCSizeChangeKind: String, Codable, Equatable, Sendable {
@@ -435,6 +437,8 @@ public enum IPCCommandRequest: Equatable, Sendable {
     case toggleBordersEnabled
     case togglePreventSleepEnabled
     case toggleIPCEnabled
+    case centerActiveColumn
+    case placeActiveColumnAtRightEdge
 
     public var name: IPCCommandName {
         switch self {
@@ -606,6 +610,10 @@ public enum IPCCommandRequest: Equatable, Sendable {
             .togglePreventSleepEnabled
         case .toggleIPCEnabled:
             .toggleIPCEnabled
+        case .centerActiveColumn:
+            .centerActiveColumn
+        case .placeActiveColumnAtRightEdge:
+            .placeActiveColumnAtRightEdge
         }
     }
 
@@ -706,6 +714,12 @@ public enum IPCCommandRequest: Equatable, Sendable {
         case .toggleViewportScrollLock:
             try requireNoArguments()
             self = .toggleViewportScrollLock
+        case .centerActiveColumn:
+            try requireNoArguments()
+            self = .centerActiveColumn
+        case .placeActiveColumnAtRightEdge:
+            try requireNoArguments()
+            self = .placeActiveColumnAtRightEdge
         case .move:
             self = .move(direction: try requireDirection())
         case .moveWindowDown:
@@ -990,6 +1004,10 @@ extension IPCCommandRequest: Codable {
             self = .scrollViewportRight
         case .toggleViewportScrollLock:
             self = .toggleViewportScrollLock
+        case .centerActiveColumn:
+            self = .centerActiveColumn
+        case .placeActiveColumnAtRightEdge:
+            self = .placeActiveColumnAtRightEdge
         case .move:
             let arguments = try container.decode(IPCDirectionArguments.self, forKey: .arguments)
             self = .move(direction: arguments.direction)
@@ -1182,6 +1200,10 @@ extension IPCCommandRequest: Codable {
         case .scrollViewportRight:
             break
         case .toggleViewportScrollLock:
+            break
+        case .centerActiveColumn:
+            break
+        case .placeActiveColumnAtRightEdge:
             break
         case let .move(direction):
             try container.encode(IPCDirectionArguments(direction: direction), forKey: .arguments)

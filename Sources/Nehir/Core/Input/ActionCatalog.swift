@@ -1027,9 +1027,9 @@ enum ActionCatalog {
         case .toggleViewportScrollLock:
             .toggleViewportScrollLock
         case .centerActiveColumn:
-            nil
+            .centerActiveColumn
         case .placeActiveColumnAtRightEdge:
-            nil
+            .placeActiveColumnAtRightEdge
         case .move:
             .move
         case .moveWindowDown:
